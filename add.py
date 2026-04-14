@@ -104,6 +104,8 @@ def upload():
 
 
 # ================= MAIN =================
+import os
+
 if __name__ == '__main__':
     conn = sqlite3.connect('jobs.db')
     cur = conn.cursor()
@@ -115,4 +117,5 @@ if __name__ == '__main__':
     conn.commit()
     conn.close()
 
-    app.run(debug=True)
+    port = int(os.environ.get("PORT", 5000))   # ✅ IMPORTANT
+    app.run(host="0.0.0.0", port=port)         # ✅ IMPORTANT

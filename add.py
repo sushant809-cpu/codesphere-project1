@@ -1,71 +1,118 @@
-# ================= BACKEND (FLASK + JWT) =================
+# ================= BACKEND (FLASK + JWT + CORS FIX) =================
 
-from flask import Flask,request,jsonify
+from flask import Flask, request, jsonify
+from flask_cors import CORS   # ✅ NEW
 import sqlite3, jwt, datetime
 from werkzeug.utils import secure_filename
 import os
 
-app=Flask(__name__)
-app.config['SECRET_KEY']='secret123'
+app = Flask(__name__)
+CORS(app)   # ✅ IMPORTANT (fixes frontend connection)
 
-UPLOAD_FOLDER='uploads'
-os.makedirs(UPLOAD_FOLDER,exist_ok=True)
+app.config['SECRET_KEY'] = 'secret123'
+
+UPLOAD_FOLDER = 'uploads'
+os.makedirs(UPLOAD_FOLDER, exist_ok=True)
+
+def db():
+    return sqlite3.connect('jobs.db')
 
 
-def db(): return sqlite3.connect('jobs.db')
-
-@app.route('/signup',methods=['POST'])
+# ================= SIGNUP =================
+@app.route('/signup', methods=['POST'])
 def signup():
- d=request.json
- conn=db();cur=conn.cursor()
- cur.execute("INSERT INTO users(name,email,password) VALUES(?,?,?)",(d['name'],d['email'],d['password']))
- conn.commit();return jsonify({'msg':'done'})
+    data = request.json
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO users(name,email,password) VALUES(?,?,?)",
+                (data['name'], data['email'], data['password']))
+    conn.commit()
+    conn.close()
+    return jsonify({'msg': 'Signup success'})
 
-@app.route('/login',methods=['POST'])
+
+# ================= LOGIN =================
+@app.route('/login', methods=['POST'])
 def login():
- d=request.json
- conn=db();cur=conn.cursor()
- cur.execute("SELECT * FROM users WHERE email=? AND password=?",(d['email'],d['password']))
- u=cur.fetchone()
- if u:
-  token=jwt.encode({'user':d['email'],'exp':datetime.datetime.utcnow()+datetime.timedelta(hours=2)},app.config['SECRET_KEY'],algorithm='HS256')
-  return jsonify({'token':token})
- return jsonify({'msg':'fail'})
+    data = request.json
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM users WHERE email=? AND password=?",
+                (data['email'], data['password']))
+    user = cur.fetchone()
+    conn.close()
 
-@app.route('/jobs',methods=['GET'])
-def jobs():
- cur=db().cursor();cur.execute("SELECT * FROM jobs")
- return jsonify([{'id':j[0],'title':j[1],'company':j[2],'salary':j[3]} for j in cur.fetchall()])
+    if user:
+        token = jwt.encode({
+            'user': data['email'],
+            'exp': datetime.datetime.utcnow() + datetime.timedelta(hours=2)
+        }, app.config['SECRET_KEY'], algorithm='HS256')
 
-@app.route('/jobs',methods=['POST'])
-def add():
- d=request.json
- conn=db();cur=conn.cursor()
- cur.execute("INSERT INTO jobs(title,company,salary) VALUES(?,?,?)",(d['title'],d['company'],d['salary']))
- conn.commit();return jsonify({'msg':'ok'})
+        return jsonify({'token': token})
 
-@app.route('/save',methods=['POST'])
-def save():
- d=request.json
- conn=db();cur=conn.cursor()
- cur.execute("INSERT INTO saved(job_id) VALUES(?)",(d['job_id'],))
- conn.commit();return jsonify({'msg':'saved'})
+    return jsonify({'msg': 'Invalid login'})
 
-@app.route('/upload',methods=['POST'])
+
+# ================= GET JOBS =================
+@app.route('/jobs', methods=['GET'])
+def get_jobs():
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("SELECT * FROM jobs")
+    jobs = cur.fetchall()
+    conn.close()
+
+    return jsonify([
+        {'id': j[0], 'title': j[1], 'company': j[2], 'salary': j[3]}
+        for j in jobs
+    ])
+
+
+# ================= ADD JOB =================
+@app.route('/jobs', methods=['POST'])
+def add_job():
+    data = request.json
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO jobs(title,company,salary) VALUES(?,?,?)",
+                (data['title'], data['company'], data['salary']))
+    conn.commit()
+    conn.close()
+    return jsonify({'msg': 'Job added'})
+
+
+# ================= SAVE JOB =================
+@app.route('/save', methods=['POST'])
+def save_job():
+    data = request.json
+    conn = db()
+    cur = conn.cursor()
+    cur.execute("INSERT INTO saved(job_id) VALUES(?)", (data['job_id'],))
+    conn.commit()
+    conn.close()
+    return jsonify({'msg': 'Saved'})
+
+
+# ================= UPLOAD RESUME =================
+@app.route('/upload', methods=['POST'])
 def upload():
- f=request.files['file']
- path=os.path.join(UPLOAD_FOLDER,secure_filename(f.filename))
- f.save(path)
- return jsonify({'msg':'uploaded'})
-
-if __name__=='__main__':
- conn=sqlite3.connect('jobs.db')
- cur=conn.cursor()
- cur.execute("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,name TEXT,email TEXT,password TEXT)")
- cur.execute("CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY,title TEXT,company TEXT,salary TEXT)")
- cur.execute("CREATE TABLE IF NOT EXISTS saved(id INTEGER PRIMARY KEY,job_id INTEGER)")
- conn.commit();conn.close()
- app.run(debug=True)
+    file = request.files['file']
+    filename = secure_filename(file.filename)
+    path = os.path.join(UPLOAD_FOLDER, filename)
+    file.save(path)
+    return jsonify({'msg': 'Uploaded'})
 
 
+# ================= MAIN =================
+if __name__ == '__main__':
+    conn = sqlite3.connect('jobs.db')
+    cur = conn.cursor()
 
+    cur.execute("CREATE TABLE IF NOT EXISTS users(id INTEGER PRIMARY KEY,name TEXT,email TEXT,password TEXT)")
+    cur.execute("CREATE TABLE IF NOT EXISTS jobs(id INTEGER PRIMARY KEY,title TEXT,company TEXT,salary TEXT)")
+    cur.execute("CREATE TABLE IF NOT EXISTS saved(id INTEGER PRIMARY KEY,job_id INTEGER)")
+
+    conn.commit()
+    conn.close()
+
+    app.run(debug=True)
